@@ -1,0 +1,207 @@
+esphome:
+  name: dbed
+  platform: ESP8266
+  board: nodemcuv2
+
+
+globals:
+  - id: initial_zero
+    type: float
+    restore_value: yes
+    # NOTE: make sure to align this value to the one used in "calibrate_linear" below!
+    initial_value: '45000'
+    
+  - id: auto_tare_enabled
+    type: bool
+    restore_value: yes
+    initial_value: 'true'
+
+  - id: auto_tare_difference
+    type: float
+    restore_value: yes
+    initial_value: '0'
+    
+  - id: manual_tare_flag
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+
+
+wifi:
+  networks:
+  - ssid: %WIFI_SSID%
+    password: %WIFI_PASSWORD%
+    manual_ip:
+      # Set this to the IP of the ESP
+      static_ip: %IP%
+      # Set this to the IP address of the router. Often ends with .1
+      gateway: 192.168.0.1
+    # The subnet of the network. 255.255.255.0 works for most home networks.
+      subnet: 255.255.255.0
+  ap:
+    ssid: "Smart bed Fallback Hotspot"
+    password: %PASSWORD%
+
+web_server:
+  port: 80
+
+captive_portal:
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  password: ""
+
+ota:
+  password: ""
+
+binary_sensor:
+  - platform: template
+    name: "Bed Occupied"
+    device_class: occupancy
+    lambda: |-
+      if (id(bed_hx711_value).state > 10) {
+        return true;
+      } else {
+        return false;
+      }      
+  - platform: template
+    name: "Bed Full"
+    device_class: occupancy
+    lambda: |-
+      if (id(bed_hx711_value).state > 70) {
+        return true;
+      } else {
+        return false;
+      }  
+
+switch:
+  ## Switch to enable/disable the auto tare feature
+  - platform: template
+    id: bed_continuous_tare_enabled
+    name: "Bed Continuous Tare Enabled"
+    lambda: |-
+      return id(auto_tare_enabled);
+    turn_on_action:
+      - lambda: |-
+          id(auto_tare_enabled) = true;
+    turn_off_action:
+      - lambda: |-
+          id(auto_tare_enabled) = false;
+  
+  ## Switch used to initiate a manual tare
+  - platform: template
+    id: bed_manual_tare_action_switch
+    name: "Bed Manual Tare Action"
+    lambda: |-
+      return id(manual_tare_flag);
+    turn_on_action:
+      - lambda: |-
+          id(auto_tare_difference) = id(initial_zero) - id(bed_hx711_value_raw).state;
+      - switch.turn_off: bed_manual_tare_action_switch
+    turn_off_action:
+      - lambda: |-
+          id(manual_tare_flag) = false;
+
+
+    
+
+sensor:
+
+  - platform: wifi_signal
+    name: "Under Bed WiFi Signal Sensor"
+    update_interval: 60s
+
+
+  # template sensors from global variables
+  - platform: template
+    id: bed_initial_zero
+    name: "Bed Initial Zero"
+    lambda: |-
+      return id(initial_zero);
+    update_interval: 1s
+    
+  - platform: template
+    id: bed_auto_tare_difference
+    name: "Bed Auto Tare Difference"
+    lambda: |-
+      return id(auto_tare_difference);
+    update_interval: 1s
+    
+  # sensors imported from home assistant
+  - platform: homeassistant
+    id: homeassistant_initial_zero
+    entity_id: input_number.bed_initial_zero
+    on_value:
+      then:
+        - lambda: |-
+            id(initial_zero) = x;
+
+
+
+  - platform: hx711
+    id: bed_hx711_value_raw
+    name: "Bed Weight Value"
+    internal: True
+    dout_pin: D1
+    clk_pin: D2
+    update_interval: 1s
+    unit_of_measurement: kg
+    filters:
+      - sliding_window_moving_average:
+          window_size: 5
+          send_every: 1
+    on_value:
+      then:
+        - sensor.template.publish:
+            id: bed_hx711_value
+            state: !lambda 'return id(bed_hx711_value_raw).state;'
+        - if:
+            condition:
+              and:
+                - lambda: 'return id(auto_tare_enabled);'
+                # current bed value is below approx. 10KG (raw value -275743) aka nobody is standing on the scale
+                - lambda: 'return id(bed_hx711_value).state < 10.0;'
+            then:
+              - if:
+                  condition:
+                    # current raw scale value is below expected zero value
+                    - lambda: 'return id(bed_hx711_value_raw).state < (id(initial_zero) - id(auto_tare_difference));'
+                  then:
+                    # INcrease Auto-Tare offset to slowly align real zero value with expected zero value
+                    - lambda: |-
+                        id(auto_tare_difference) += 10;
+                  else:
+                    # DEcrease Auto-Tare offset to slowly align real zero value with expected zero value
+                    - lambda: |-
+                        id(auto_tare_difference) -= 10;
+
+  # Mapped value to KG
+  - platform: template
+    id: bed_hx711_value
+    name: "bed HX711 Value"
+    internal: False
+    filters:
+      # apply auto_tare difference
+      - lambda: 'return x + id(auto_tare_difference);'
+      # apply rough calibration
+      - calibrate_linear:
+          # retrieve these values by evaluating the raw values with loads of known mass.
+          # note that a bigger difference between measurements usually results in higher resolution,
+          # so measure 0 Kg and the highest known mass you have (like f.ex. your own weight, measured by a normal scale with good accuracy)
+          - 45000 -> 0
+          - 177000 -> 50
+      # map values below 0.1 to 0 (to decrease value changes due to random fluctuation)
+      - lambda: |-
+          if (x <= 0.1) {
+            return 0.0;
+          } else {
+            return x;
+          }
+          
+    unit_of_measurement: kg
+    accuracy_decimals: 2
+    update_interval: 0.2s
