@@ -38,3 +38,11 @@ This repo contains the necessary code to create the ESPHome Smart Bed. A DIY Pro
 - **Placement** - Load cells can either be placed under the legs of the bed, or between the slats and the mattress. The latter is easier to set up, but the former tends to be more reliable. I use the slats method for my device and is quite reliable with auto taring enabled.
 - **Slats/Mattress Approach** - If you decide this is the path you will take I suggest manually taring the bed upon leaving home. In my personal experience the bed will detect you 99.9% of the time with this approach.
 
+## Donate
+
+If you found this project helpful feel free to send me a donation. If not, Thats cool too! :)
+
+btc 3JkyRbkmrF54jEizYgLRkBxMFek32GPhyh
+ltc LbqF41gdLjbunGLrvZf3RbPAWyfeQk3LEw
+xmr 45BWhTURjsK1918dnTTZK5DRkLdzEZndPT7p6B9qyRTnGVMhg5zcYwGEiymctGumwGdhySFpCAwSEUSBEXxUGeWyMjvT4TZ
+eth 0x08fB95EbE017A0AeD3430853F5AE924Caa4F8b9a
